@@ -9,11 +9,11 @@ rep <- args[1]
 # and give a seed to each replication based on a range 
 # Run 100 replications in each cell
 # List SCAD and boot cells 
-Ns <- c(6, 18, 54 ,100)
-ps <- c(5, 10, 20)
+Ns <- c(6, 18, 54 ,100) # Will need to change this
+ps <- c(5, 10, 20) # This less so, to handle the ranks
 rs <- c(0.2, 0.5)
-wts <- c('Eq', 'Skw')
-model <- c('Fix', 'Rand', 'Hetero')
+wts <- c('Eq', 'Skw') # Delete this 
+model <- c('Fix', 'Rand', 'Hetero') # And this
 
 cells_table <- expand.grid(Ns, ps, rs, wts, model)
 source("../runsims.R")
