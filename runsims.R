@@ -11,9 +11,8 @@
 # het_scad -- scad regression to select linear contributors to heteroskedasticity
 # boot_rep -- bootstrap replicates 
 # res_fun
+# Some other things to handle ranked predictors
 
-
-require(SIS)
 require(glmnet)
 require(boot)
 require(cvTools)
@@ -112,10 +111,20 @@ simple_reg <- function(X, Y, wts){
     return(output)
 }
 
-lasso_reg <- function(X, Y, wts){
+lasso_reg <- function(X, Y, wts, nestL = FALSE){
 
-    lassomodel <- cv.glmnet(x = X, y = Y, weights = wts)
-    coefs <- coefficients(lassomodel, s = lassomodel$lambda.min)[-1]
+    
+
+    if(nestL == TRUE){
+
+    } else{
+      #
+      lassomodel <- cv.glmnet(x = X, y = Y, weights = wts)
+      coefs <- coefficients(lassomodel, s = lambda.min)[-1]
+    }
+    
+    
+
     lasselect <- as.numeric(coefs != 0)
     output <- list(select = lasselect, coefs = coefs)
     return(output)
