@@ -1,297 +1,105 @@
-# run script for dissertation simulations
+# run script for simulations
 
 
 # functions: 
-# data_gen -- generates data according to the true model, gives achieved R^2, weights, true predictors, 
-# noise_gen -- generates noise predictors, finalizes data 
+# data_gen -- generates data according to the true model, gives achieved R^2, weights, true predictors, noise predictors, finalizes data 
 # simple_reg -- simple regression for each column -- produces set of variable selections
 # lasso_reg -- lasso regression to produce a set of variable selections
-# scad_reg -- scad regression for a set of variable selections
-# het_lasso -- lasso regression to select linear contributors to heteroskedasticity
-# het_scad -- scad regression to select linear contributors to heteroskedasticity
 # boot_rep -- bootstrap replicates 
 # res_fun
 # Some other things to handle ranked predictors
+
+
+# Other things that are required (loop over lambda and collect statistics on it)
 
 require(glmnet)
 require(boot)
 require(cvTools)
 require(MASS)
-data_gen <- function(N, psig, wts, rs, model, phet){
-    fixdata <- matrix(rnorm(N*psig), nrow = N, ncol = psig)
-    hetpred <- matrix(0, nrow = N, ncol = 1)
-    weights <- rep(1,N)
-    X <- fixdata
-    Z <- 0
-    if (phet > 0){
-        Z <- matrix(runif(N*phet), nrow = N, ncol = phet)%*%matrix(2, nrow = phet, ncol = 1)
-        
-    }
 
-    if (wts == "Skw"){
-        weights <- matrix(rexp(N, 1), nrow = N)
-    }
-
-    fweights <- weights
-    errors <- rnorm(N, 0, sqrt(weights)) ### sqrt wts gives the errors 
-
-    
-    if (model != "Fix"){
-        q <- 0.80
-        random_effects <- (1-q)*rnorm( N, 0, sqrt(mean(weights)) ) + (q)*rnorm(N, 0, sqrt(Z)) 
-        errors <- errors + random_effects ####  = 1.04 sigma in RE case, 1.04 sigma + 1.28u
-        weights <- weights + matrix( mean(weights), nrow = N) + Z
-
-    }
-
-    Rmult <- rs/(1-rs)
-    W <- diag(N)
-    diag(W) <- 1/weights
+data_gen <- function(N, psig, pnoise, model, rs , nsnp = 10000, hsq = 0.10){ 
    
-    Q <- matrix(1,ncol = psig)%*%t(fixdata) %*% W %*%fixdata%*%matrix(1,nrow = psig)
-    b <-  matrix(sqrt(Rmult * N / sum(diag(Q))), nrow = psig, ncol = 1)
-    Y <- fixdata%*%b + errors
+    # model = 'solitary,' 'ranks,' 'polyG'
+    if(model != "polyG"){
+        
+        totalP <- pnoise + psig
+        fixdata <- matrix(rbinom(N*psig, size = 2, prob = 0.5), nrow = N, ncol = psig)
+        noiseX <- matrix( rbinom(N * pnoise, size = 2, prob = 0.5), nrow = N, ncol = pnoise)
+    
+        fullX <- matrix(nrow = N, ncol = totalP)
+    
+        cols <- sample(totalP) siglist <- cols[1:psig]
 
-    output <- list(X=X, Y=Y, tweights=weights, fweights = fweights, achR = summary(lm(Y~fixdata, weights = 1/weights))$r.squared, Z=Z)
-    return(output)
+        fullX[ , siglist] <- X[, 1:psig]
+    
+        nlist <- cols[(psig + 1):(pnoise + psig) ]
+
+        fullX[, nlist] <- noiseX 
+        
+        rm(noiseX)    
+
+        if (model == "ranks"){ 
+   
+            b <-  matrix(c(0.01, 0.0067, 0.0033, 0.0022, 0.001) , nrow = psig, ncol = 1) 
+            errors <- sqrt(1 - 0.25*sum(c(0.01, 0.0067, 0.0033, 0.0022, 0.001)))*rnorm(N) # so that v(y) = 1 and coefs are readily interpretable
+
+        } else {
+            b <- matrix(rs, ncol = 1) 
+            errors <- sqrt(1 - 0.25*sum(rs))*rnorm(N) # so that v(y) = 1 and coefs are readily interpretable
+
+        }  	
+
+	Y <- fixdata%*%b + errors
+    achR2 <- summary(lm(Y~fixdata))$r.squared
+   
+   } else {
+  # polyG models
+        polyGdata <- replicate( nsnps, rbinom( n = N, size = 2, prob = 0.5))
+        b <- sqrt(hsq/(nsnps*0.25))*rnorm(nsnps) # hsq prop of variance accounted for by the 10000 loci with EAF 0.5; 
+        b <- b[order(abs(b), decreasing = TRUE)]
+        errors <-  (1 - sqrt(hsq/(nsnps*0.25)))*rnorm(nsnps)
+        Y <- polyGdata%*%b + errors
+
+  } 
+
+    output <- list(fullX = fullX,  achR2 = achR2, siglist = siglist, nlist = nlist)
+
+    return(output) 
+
 }
 
-noise_gen <- function(pnoise, pnhet, psig, phet, X, Z){
-    N <- nrow(X)
-
-    noiseX <- matrix( rnorm(N * pnoise), nrow = N, ncol = pnoise)
+lasso_reg <- function(X, Y,  nestL = FALSE){
     
-    totalP <- pnoise + psig
-    totalH <- phet + pnhet
-    
-    fullX <- matrix(nrow = N, ncol = totalP)
-    fullZ <- 0
-    hetlist <- NA
-    nhetlist <- NA
-    
-    cols <- sample(totalP)
-    siglist <- cols[1:psig]
-
-    fullX[ , siglist] <- X[, 1:psig]
-    
-    nlist <- cols[(psig + 1):(pnoise + psig) ]
-
-    fullX[, nlist] <- noiseX
-    
-    if (phet > 0){
-        fullZ <- matrix(nrow = N, ncol = totalH)
-        zcols <- sample(totalH)
-        hetlist <- zcols[1:phet]
-        fullZ[,hetlist] <- Z
-
-        if  (pnhet > 0){
-            noiseP <- matrix(runif(N*pnhet), nrow = N, ncol = pnhet)
-            nhetlist <- zcols[(phet + 1):totalH]
-            fullZ[, nhetlist] <- noiseP
-        }
-    }
-    output <- list(fullX = fullX, fullZ = fullZ, siglist = siglist,  hetlist = hetlist, nlist = nlist,  nhetlist = nhetlist )
-
-    return(output)
-}
-
-simple_reg <- function(X, Y, wts){
-    P <- ncol(X)
-    fixselect <- vector(mode = "numeric", length = P)
-    coefs <- vector(mode = "numeric", length = P)
-    
-    for (j in 1: P){
-        templm <- lm(Y~X[,j], weights = wts)
-        tempp <- summary(templm)$coefficients[2,"Pr(>|t|)"]
-        fixselect[j] <- tempp <= 0.05
-        coefs[j] <- summary(templm)$coefficients[2,"Estimate"]
-    }
-
-    output <- list(select = fixselect, coefs = coefs)
-    return(output)
-}
-
-lasso_reg <- function(X, Y, wts, nestL = FALSE){
-
-    
-
-    if(nestL == TRUE){
-
-    } else{
-      #
-      lassomodel <- cv.glmnet(x = X, y = Y, weights = wts)
-      coefs <- coefficients(lassomodel, s = lambda.min)[-1]
-    }
-    
-    
-
+    lassomodel <- cv.glmnet(x = X, y = Y  )
+    coefs <- coefficients(lassomodel, s = lassomodel$lambda.min)[-1]
     lasselect <- as.numeric(coefs != 0)
-    output <- list(select = lasselect, coefs = coefs)
-    return(output)
-
-}
-
-
-
-scad_reg <- function(X, Y,  wts){
-
-    folds <- cvFolds(n = nrow(X), K = 5, type = "random")
-    lambdarange <- seq(1e-6, max(abs(cov(X,Y))), length.out = 100)
-    cvMatrix <- matrix(nrow = length(lambdarange), ncol =8)
-
-    for (j in 1:5){
-        train <- folds$subsets[folds$which == j]
-        test <-  folds$subsets[folds$which != j]
-        xtrain <- X[train, ]
-        ytrain <- Y[train ]
-        xtest <- X[test, ]
-        ytest <- Y[test ]
-        for (l in 1:100){
-        trainmodel <- fullscadglm(x = xtrain, y = ytrain, weight = wts[train], family = gaussian(), lambda = lambdarange[l])
-        testresid <- cbind(1,xtest)%*%trainmodel - ytest
-        mspe <- mean(testresid^2)
-        cvMatrix[l,(j + 1)] <- mspe
-        cvMatrix[l,1] <- lambdarange[l]
-    }
-    }
-
-    cvMatrix[,7] <- rowMeans(cvMatrix[,2:6])
-    cvMatrix[,8] <- apply(cvMatrix[,2:6], 1, sd)
-
-    lambda.min <- cvMatrix[which.min(cvMatrix[,7]), 1]
-    scadmodel <- fullscadglm(x = X, y = Y, weight = wts, family = gaussian(), lambda = lambda.min)
-    coefs <- scadmodel[-1]
-    scadselect <- as.numeric(coefs != 0)
-    # add cross-validation # cvtools
+   
+    output <- list(select = lasselect, coefs = coefs, lambda = lassomodel$lambda.min, lambda1SE = lassomodel$lambda.1se)
     
-    output <- list(select = scadselect, coefs = coefs)
-    return(output)
+    if(nestL == TRUE){ output <- list(lambda = lassomodel$lambda.min, lambda1SE = lassomodel$lambda.1se)} 
     
-}
-
-
-
-
-simple_het <- function(X, Y, Z, wts, hetlist){
-    # read amemiya paper again
-    P <- length(hetlist)
-    fhetselect <- vector(mode = "numeric", length = P)
-    coefs <- vector(mode = "numeric", length = P)
-
-
-    fixR <-    Y - X%*%ginv(t(X)%*%X)%*%t(X)%*%Y
-    fixR2 <- fixR^2
-    for (j in 1:P){
-        templm <- lm(fixR2~Z[,j])
-        D <- (templm$fitted.values)^2
-        newWt <- 1/D
-        tempwlm <- lm(fixR2~Z[,j], weights = newWt)
-        tempp <- summary(tempwlm)$coefficients[2,"Pr(>|t|)"]
-        fhetselect[j] <- tempp <= 0.05
-        coefs[j] <- summary(tempwlm)$coefficients[2,"Estimate"]
-    }
-
-    output <- list(select = fhetselect, coefs = coefs)
-    return(output)
-}
-
-lasso_het <- function(X, Y, Z, wts, hetlist){
-    # read amemiya paper again
-    P <- length(hetlist)
-    fhetselect <- vector(mode = "numeric", length = P)
-    coefs <- vector(mode = "numeric", length = P)
-
-    fixR <-    Y - X%*%ginv(t(X)%*%X)%*%t(X)%*%Y
-    fixR2 <- fixR^2
-    tempglm <- cv.glmnet(y = fixR2, x = Z)
-    D <- (predict(tempglm, newx = Z, s = tempglm$lambda.min))^2
-    newWt <- 1/D
-    tempwlm <- cv.glmnet(y = fixR2, x = Z, weights = newWt)
-    coefs <- coefficients(tempwlm, s = tempwlm$lambda.min)[-1]
-    fhetselect <- as.numeric(coefs !=0)
-
-    output <- list(select = fhetselect, coefs = coefs)
-    return(output)
-}
-
-
-scad_het <- function(X, Y, Z, wts, hetlist){
-    P <- length(hetlist)
-    fhetselect <- vector(mode = "numeric", length = P)
-    coefs <- vector(mode = "numeric", length = P)
-
-    fixR <- lm(Y~X, weights = wts)$residuals
-    fixR2 <- fixR^2
-    tempscad <- scad_reg(Y = fixR2, X = Z)
-    D <- (hetX%*%tempscad$coefs)^2
-    newWt <- 1/D
-    tempwlm <- scad_reg(Y = fixR2, X = Z, wts = newWt)
-    coefs <- tempwlm$coefs
-    fhetselect <- as.numeric(coefs !=0)
-
-    output <- list(select = fhetselect, coefs = coefs)
     return(output)
 
 }
 
+boot_rep_las <- function(data, idx, nested = FALSE ){
 
-boot_rep_simp <- function(data, idx, wts, hetlist = FALSE, Z = NA){
-    if (!is.na(hetlist)){
-        replicate <- simple_reg(X = data[idx, -1], Y = data[idx,1], wts = wts[idx])
-        hreplicate <- simple_het(X = data[idx,-1], Y = data[idx,1], Z=Z, wts = wts[idx], hetlist = hetlist)
-    } else {replicate <- simple_reg(X = data[idx,-1], Y = data[idx,1], wts = wts[idx])
-            hreplicate <- list(NA, coefs=NA)
-        }
-
-    return(c(replicate$coefs, hreplicate$coefs))
-}
-
-
-boot_rep_las <- function(data, idx, wts, hetlist = FALSE, Z = NA){
-
-      if (!is.na(hetlist)){
-        replicate <- lasso_reg(X = data[idx, -1], Y = data[idx,1], wts = wts[idx])
-        hreplicate <- lasso_het(X = data[idx,-1], Y = data[idx,1], Z=Z, wts = wts[idx], hetlist = hetlist)
-    } else {replicate <- lasso_reg(X = data[idx,-1], Y = data[idx,1], wts = wts[idx])
-            hreplicate <- list(NA, coefs=NA)
-        }
-
-    return(c(replicate$coefs, hreplicate$coefs))
-
-}
-
-
-boot_rep_scad <- function(data, idx, wts, hetlist = FALSE, Z = NA){
-
-    if (!is.na(hetlist)){
-        replicate <- scad_reg(X = data[idx, -1], Y = data[idx,1], wts = wts[idx])
-        hreplicate <- scad_het(X = data[idx,-1], Y = data[idx,1], Z=Z, wts = wts[idx], hetlist = hetlist)
-    } else {replicate <- scad_reg(X = data[idx,-1], Y = data[idx,1], wts = wts[idx])
-            hreplicate <- list(NA, coefs=NA)
-        }
-
-    return(c(replicate$coefs, hreplicate$coefs))
+    replicate <- lasso_reg(X = data[idx,-1], Y = data[idx,1], nestL = nested)
+       if(nested == TRUE){ return(replicate) } else { return(replicate$coefs)}
 
 }
 
 
 
-res_fun <- function(selects, hselects, siglist, nlist, hetlist, nhetlist){
+res_fun <- function(selects, siglist, nlist){
     basevec <- selects*0 
-    hbasevec <- hselects*0 
-    # convert lists of indices to logical vectors 
+    
+    # convert lists of indices to logical vectors (probably a clumsy way to do this)
     sigvec <- basevec
     sigvec[siglist] <- 1 
     
     nvec <- basevec
     nvec[nlist] <- 1 
-
-    hetvec <- hbasevec
-    hetvec[hetlist] <- 1 
-
-    nhetvec <- hbasevec
-    nhetvec[nhetlist] <- 1 
-
 
     TPs <- sum(selects*sigvec)
     TPR <- TPs/sum(sigvec + 1e-16)
@@ -301,28 +109,18 @@ res_fun <- function(selects, hselects, siglist, nlist, hetlist, nhetlist){
     
     fVSP <- TPs /(TPs + FPs + 1e-16)
 
-    hTP <- sum(hselects*hetvec)
-    hTPR <- hTP/sum(hetvec + 1e-16)
-    
-    hFP <- sum(hselects*nhetvec)
-    hFPR <- hFP/sum(nhetvec + 1e-16)
-
-    hVSP <- hTP/(hTP + hFP + 1e-16)
-    output <- list(VSP = fVSP,  TPR = TPR, FPR = FPR, hVSP = hVSP, hTPR = hTPR, hFPR = hFPR)
+	# also need CI handling here
+	# quantile
+	# normal theory
+    # lambda-distribution stuff
+    output <- list(VSP = fVSP,  TPR = TPR, FPR = FPR)
     return(output)
 }
 
 
-diss_run <- function(N = 7, p = 10, r=0.5, wt='Eq', model = 'Fix', seed = 4231, boots = FALSE, scad = FALSE, rep = 0){
+diss_run <- function(N = 7, p = 10, r=0.5, model = 'Fix', seed = 4231, boots = FALSE,  rep = 0){
     pn <- p - 1
-    ph <- 0
-    pnh <- 0
     
-    if (model == "Hetero"){
-        ph <- 1
-        pnh <- 1
-        pn <- p - 3
-    }
 
     set.seed(seed)
     modelData <- data_gen(N = N, psig = 1, wts = wt, model = model, phet = ph, rs = r)
