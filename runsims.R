@@ -17,7 +17,7 @@ require(boot)
 require(cvTools)
 require(MASS)
 
-data_gen <- function(N, psig, pnoise, model, rs , nsnp = 10000, hsq = 0.10){ 
+data_gen <- function(N, psig, pnoise, model, rs , nsnps = 10000, hsq = 0.10){ 
    
     # model = 'solitary,' 'ranks,' 'polyG'
     if(model != "polyG"){
@@ -28,11 +28,13 @@ data_gen <- function(N, psig, pnoise, model, rs , nsnp = 10000, hsq = 0.10){
     
         fullX <- matrix(nrow = N, ncol = totalP)
     
-        cols <- sample(totalP) siglist <- cols[1:psig]
+        cols <- sample(totalP) 
+        
+        siglist <- cols[1:psig]
 
-        fullX[ , siglist] <- X[, 1:psig]
+        fullX[ , siglist] <- fixdata[, 1:psig]
     
-        nlist <- cols[(psig + 1):(pnoise + psig) ]
+        nlist <- cols[(psig + 1):totalP ]
 
         fullX[, nlist] <- noiseX 
         
@@ -40,29 +42,32 @@ data_gen <- function(N, psig, pnoise, model, rs , nsnp = 10000, hsq = 0.10){
 
         if (model == "ranks"){ 
    
-            b <-  matrix(c(0.01, 0.0067, 0.0033, 0.0022, 0.001) , nrow = psig, ncol = 1) 
-            errors <- sqrt(1 - 0.25*sum(c(0.01, 0.0067, 0.0033, 0.0022, 0.001)))*rnorm(N) # so that v(y) = 1 and coefs are readily interpretable
+            b <-  matrix(sqrt(2*c(0.01, 0.0067, 0.0033, 0.0022, 0.001)) , nrow = psig, ncol = 1) 
+            errors <- sqrt(1 - sum(c(0.01, 0.0067, 0.0033, 0.0022, 0.001)))*rnorm(N) # so that v(y) = 1 and coefs are readily interpretable
 
         } else {
-            b <- matrix(rs, ncol = 1) 
-            errors <- sqrt(1 - 0.25*sum(rs))*rnorm(N) # so that v(y) = 1 and coefs are readily interpretable
+            
+            b <- matrix(sqrt(2*rs), ncol = 1) 
+            errors <- sqrt(1 - sum(rs))*rnorm(N) # so that v(y) = 1 and coefs are readily interpretable
 
         }  	
 
-	Y <- fixdata%*%b + errors
+	Y <- fullX[,siglist]%*%b + errors
     achR2 <- summary(lm(Y~fixdata))$r.squared
    
    } else {
   # polyG models
-        polyGdata <- replicate( nsnps, rbinom( n = N, size = 2, prob = 0.5))
-        b <- sqrt(hsq/(nsnps*0.25))*rnorm(nsnps) # hsq prop of variance accounted for by the 10000 loci with EAF 0.5; 
+        fullX <- matrix( rbinom( n = N * nsnps, size = 2, prob = 0.5), nrow = N, ncol = nsnps )
+        b <- sqrt(hsq/(nsnps*0.5))*rnorm(nsnps) # hsq prop of variance accounted for by the 10000 loci with EAF 0.5; 
         b <- b[order(abs(b), decreasing = TRUE)]
-        errors <-  (1 - sqrt(hsq/(nsnps*0.25)))*rnorm(nsnps)
-        Y <- polyGdata%*%b + errors
-
+        errors <-  (1 - hsq)*rnorm(N)
+        Y <- fullX%*%b + errors
+        siglist <- 1:100
+        nlist <- 101:nsnps
+        achR2 <- c(summary(lm(Y ~ fullX[,siglist]))$r.squared, var(b)*sum(apply(fullX,2,var))   )
   } 
 
-    output <- list(fullX = fullX,  achR2 = achR2, siglist = siglist, nlist = nlist)
+    output <- list(Y =Y, fullX = fullX,  achR2 = achR2, siglist = siglist, nlist = nlist)
 
     return(output) 
 
@@ -90,8 +95,7 @@ boot_rep_las <- function(data, idx, nested = FALSE ){
 }
 
 
-
-res_fun <- function(selects, siglist, nlist){
+res_fun <- function(selects, siglist, nlist, coefs, lambda){
     basevec <- selects*0 
     
     # convert lists of indices to logical vectors (probably a clumsy way to do this)
@@ -110,23 +114,24 @@ res_fun <- function(selects, siglist, nlist){
     fVSP <- TPs /(TPs + FPs + 1e-16)
 
 	# also need CI handling here
+    qCI <- c(quantile(coefs,0.025 ), quantile(coefs, 0.975))
+    ntCI <- c( mean(coefs) - qnorm(0.975)*sd(coefs), mean(coefs) + qnorm(0.975)*sd(coefs))
+    mL <- mean(lambda)
+    sdL <- sd(lambda)
 	# quantile
 	# normal theory
     # lambda-distribution stuff
-    output <- list(VSP = fVSP,  TPR = TPR, FPR = FPR)
+    output <- list(VSP = fVSP,  TPR = TPR, FPR = FPR, qCI = qCI, ntCI = ntCI, mL = mL, sdL = sdL)
     return(output)
 }
 
 
-diss_run <- function(N = 7, p = 10, r=0.5, model = 'Fix', seed = 4231, boots = FALSE,  rep = 0){
+diss_run <- function(N = 2500, p = 100, r=0.5, model = 'Fix', seed = 4231, boots = FALSE,  rep = 0){
     pn <- p - 1
     
-
     set.seed(seed)
     modelData <- data_gen(N = N, psig = 1, wts = wt, model = model, phet = ph, rs = r)
-    noisyData <- noise_gen(pnoise = pn, pnhet = pnh, psig = 1, X = modelData$X, phet = ph, Z = modelData$Z)
 
-    simple <- simple_reg(X = noisyData$fullX, Y = modelData$Y, wts = (1/modelData$fweights))
     lasso <- lasso_reg(X = noisyData$fullX, Y = modelData$Y, wts = (1/modelData$fweights))
     outrows <- 2
     outcols <- 14
@@ -140,53 +145,17 @@ diss_run <- function(N = 7, p = 10, r=0.5, model = 'Fix', seed = 4231, boots = F
     output_array[,5] <- model
     output_array[,6] <- seed
     output_array[,7] <- modelData$achR
-    output_array[1, 8:14] <-  matrix(c("simp", unlist(res_fun(simple$select, rep(0,length(c(noisyData$hetlist, noisyData$nhetlist))), siglist = noisyData$siglist, nlist = noisyData$nlist, hetlist = noisyData$hetlist, nhetlist = noisyData$nhetlist))))
 
     output_array[2, 8:14] <-  c("las", unlist(res_fun(lasso$select, rep(0,length(c(noisyData$hetlist, noisyData$nhetlist))), siglist = noisyData$siglist, nlist = noisyData$nlist, hetlist = noisyData$hetlist, nhetlist = noisyData$nhetlist)))
 
                                 
 colnames(output_array) <- c("N", "p", "R2", "wts", "model", "seed","achR","meth","vsp", "tpr", "fpr", "hvsp", "htpr", "hfpr")
 
-    if (model == "Hetero"){
-        simH <- simple_het(X = noisyData$fullX, Y = modelData$Y, Z = noisyData$fullZ, wts = (1/modelData$fweights), hetlist = c(noisyData$hetlist, noisyData$nhetlist))
-        simH_res<-  unlist(res_fun(simple$select,simH$select, siglist = noisyData$siglist, nlist = noisyData$nlist, hetlist = noisyData$hetlist, nhetlist = noisyData$nhetlist))
-        output_array[1, 12:14] <- simH_res[4:6]
-        lasH <- lasso_het(X = noisyData$fullX, Y = modelData$Y, Z = noisyData$fullZ, wts = (1/modelData$fweights), hetlist = c(noisyData$hetlist, noisyData$nhetlist))
-        lasH_res<-  unlist(res_fun(lasso$select, lasH$select, siglist = noisyData$siglist, nlist = noisyData$nlist, hetlist = noisyData$hetlist, nhetlist = noisyData$nhetlist))
-        output_array[2, 12:14] <- lasH_res[4:6]
-    }
-
-
-    
-    if (scad == TRUE){
-        scad <- scad_reg(X = noisyData$fullX, Y = modelData$Y, wts = (1/modelData$fweights))
-        scadout <-  c(output_array[1,1:7], unlist(c("scad", res_fun(scad$select, rep(0,length(c(noisyData$hetlist, noisyData$nhetlist))),siglist = noisyData$siglist, nlist = noisyData$nlist, hetlist = noisyData$hetlist, nhetlist = noisyData$nhetlist))))
-        output_array <- rbind(output_array, scadout)
-    }
-
-    if (boots == TRUE){
+   if (boots == TRUE){
         bdata <- matrix(cbind(modelData$Y, noisyData$fullX), nrow = length(modelData$Y), ncol = (ncol(noisyData$fullX) +1) )
 
-        T <- max(ncol(noisyData$fullZ),0)
 
         bytpe <- "ordinary"
-        if (nrow(bdata < 10)) {
-            btype <- "balanced"
-        }
-        bootsimp <- boot(bdata, boot_rep_simp, sim = btype, R = 1000, wts = (1/modelData$fweights), hetlist=c(noisyData$hetlist, noisyData$nhetlist), Z = noisyData$fullZ)
-        bsimpmat <- matrix(nrow = (ncol(noisyData$fullX) + is.matrix(noisyData$fullZ)*T), ncol = 3)
-        for (j in 1:nrow(bsimpmat)){
-            bsimpmat[j,1:2] <- boot.ci(bootsimp,index = j, type = "perc")$percent[4:5]
-            bsimpmat[j,3] <- (sign(bsimpmat[j,1])*sign(bsimpmat[j,2]) > 0)
-        }
-        QQ <- 0
-        if(model =="Hetero"){
-
-            QQ <- bsimpmat[(ncol(noisyData$fullX) + 1):nrow(bsimpmat),3] 
-            
-        }
-        
-        bsout <-  c(output_array[1,1:7], c("bsimp", unlist(res_fun(bsimpmat[1:ncol(noisyData$fullX),3], QQ, siglist = noisyData$siglist, nlist = noisyData$nlist, hetlist = noisyData$hetlist, nhetlist = noisyData$nhetlist))))
 
         bootlas <- boot(bdata, boot_rep_las, R = 1000, wts = (1/modelData$fweights), hetlist=c(noisyData$hetlist, noisyData$nhetlist), Z = noisyData$fullZ)
         blasmat <- matrix( nrow = (ncol(noisyData$fullX) + is.matrix(noisyData$fullZ)*T), ncol = 3)
