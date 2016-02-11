@@ -36,7 +36,7 @@ args <- commandArgs(TRUE)
 args <- "../combest.Fix.simple.0.0033.txt"
 frameName <- read.table(args, header =FALSE, as.is = TRUE)
 
-signif( sd(frameName[,1]), 3)
+signif( mean(frameName[,1]), 3)
 signif(2*qnorm(p=0.975)*sd(frameName[,1]),3)
 signif(quantile(x = frameName[,1], probs = 0.975) - quantile(x = frameName[,1], probs = 0.025) , 3)
 
@@ -53,7 +53,8 @@ args <- "../summ.est.Fix.nested.0.0033.txt"
 frameName <- read.table(args, header = TRUE, as.is = TRUE)
 
 #lambdasnwo <- get_stat_fmests(dataFrame = frameName, stat = "min", variable ="lambda", method = "nested", model = "Fix", getstat = "mean")
-testfivenum <- sapply(X = c('min','X1Q','Med','X3Q','max'), get_stat_fmests, dataFrame = frameName,  variable ="lambda", method = "nested", model = "Fix", getstat = "mean")
+testsixnum <- sapply(X = c('min','X1Q','Med','mean','X3Q','max'), get_stat_fmests, dataFrame = frameName,  variable ="lambda", method = "nested", model = "Fix", getstat = "mean")
+signif(testsixnum,3)
 
 testvars <- sapply(X = c('sd','qciLen','ntciLen'), get_stat_fmests, dataFrame = frameName,  variable ="signal", method = "nested", model = "Fix", getstat = "mean")
 signif(testvars,3)
@@ -65,9 +66,12 @@ args <- "../combest.ranks.simple.0.01.txt"
 frameName <- read.table(args, header =FALSE, as.is = TRUE)
 signif(fivenum(frameName[,105]), 3)
 
-signif( sd(frameName[,1]), 3)
+signif( mean(frameName[,1]), 3)
 signif(2*qnorm(p=0.975)*sd(frameName[,1]),3)
 signif(quantile(x = frameName[,1], probs = 0.975) - quantile(x = frameName[,1], probs = 0.025) , 3)
+
+## Think about this until 11: no, that table has to stay as it is
+
 
 args <- "../summ.est.ranks.boot.0.01.txt"
 frameName <- read.table(args, header = TRUE, as.is = TRUE)
@@ -82,8 +86,8 @@ args <- "../summ.est.ranks.nested.0.01.txt"
 frameName <- read.table(args, header = TRUE, as.is = TRUE)
 
 
-rankfivenum <- sapply(X = c('min','X1Q','Med','X3Q','max'), get_stat_fmests, dataFrame = frameName,  variable ="lambda", method = "nested", model = "ranks", getstat = "mean")
-signif(rankfivenum,3)
+ranksixnum <- sapply(X = c('min','X1Q','Med','mean','X3Q','max'), get_stat_fmests, dataFrame = frameName,  variable ="lambda", method = "nested", model = "ranks", getstat = "mean")
+signif(ranksixnum,3)
 bnestvars <- sapply(X = c('sd','qciLen','ntciLen'), get_stat_fmests, dataFrame = frameName,  variable ="signal", method = "nested", model = "ranks", getstat = "mean")
 signif(bnestvars,3)
 nbnestvars <- sapply(X = c('sd','qciLen','ntciLen'), get_stat_fmests, dataFrame = frameName,  variable ="noise", method = "nested", model = "ranks", getstat = "mean")
@@ -97,7 +101,7 @@ signif(fivenum(frameName[,3001]), 3)
 
 signif(fivenum(frameName[,105]), 3)
 
-signif( sd(frameName[,1]), 3)
+signif( mean(frameName[,1]), 3)
 signif(2*qnorm(p=0.975)*sd(frameName[,1]),3)
 signif(quantile(x = frameName[,1], probs = 0.975) - quantile(x = frameName[,1], probs = 0.025) , 3)
 
@@ -116,10 +120,12 @@ args <- "../summ.est.polyG.nested.0.01.txt"
 frameName <- read.table(args, header = TRUE, as.is = TRUE)
 
 
-pgfivenum <- sapply(X = c('min','X1Q','Med','X3Q','max'), get_stat_fmests, dataFrame = frameName,  variable ="lambda", method = "nested", model = "polyG", getstat = "mean")
-signif(pgfivenum,3)
+pgsixnum <- sapply(X = c('min','X1Q','Med','mean','X3Q','max'), get_stat_fmests, dataFrame = frameName,  variable ="lambda", method = "nested", model = "polyG", getstat = "mean")
+signif(pgsixnum,3)
 
 bnestvars <- sapply(X = c('sd','qciLen','ntciLen'), get_stat_fmests, dataFrame = frameName,  variable ="signal", method = "nested", model = "polyG", getstat = "mean")
 signif(bnestvars,3)
 nbnestvars <- sapply(X = c('sd','qciLen','ntciLen'), get_stat_fmests, dataFrame = frameName,  variable ="noise", method = "nested", model = "polyG", getstat = "mean")
 signif(nbnestvars,3) 
+
+

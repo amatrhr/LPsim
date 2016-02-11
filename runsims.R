@@ -66,7 +66,7 @@
           errors <- rnorm(N, mean = 0, sd = sqrt(1 - hsq) )
           lc <- scale(fullX)%*%b
           Y<- lc + errors
-          psig <- floor(nsnps/1000)
+          psig <- floor(nsnps/300)
           pnoise <- nsnps - psig
           totalP <- nsnps
           siglist <- 1:psig
