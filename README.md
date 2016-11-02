@@ -2,7 +2,7 @@
 
 Files to run bootstrapped lasso simulations in a genetic (and polygenetic!) context.
 Coming soon: comments, SCAD regression
-The first paper from this project is here:(https://www.degruyter.com/view/j/sagmb.ahead-of-print/sagmb-2015-0043/sagmb-2015-0043.xml)
+The first paper from this project is here:(http://dx.doi.org/10.1515/sagmb-2015-0043)
 # Simulation Scripts 
 - aggregate.R: Rscript to aggregate different results files when called with args by the shell; more important to local implementation than logic of the simulations
 - analyze.R: R script to calculate summary stats across aggregated results; again a matter of local implementation
